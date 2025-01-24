@@ -4,6 +4,8 @@ Script for preparation of the pixel datset from NEO data and labeled polygon fil
 Two main inputs are:
     1. a polygon file containing the geo-reference polugons and the labels of each parcel??? Use *.geojson??
     2. folder containing 6 band NEO data data in tif format.
+
+    Not complete!! Working on this next.
 """
 
 import numpy as np
