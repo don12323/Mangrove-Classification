@@ -6,12 +6,16 @@ Inputs are just the NEO data.
 """
 from sklearn.cluster import KMeans
 from sklearn import cluster
+from sklearn import metrics
+from sklearn.metrics import pairwise_distances
 
 import rasterio as rio
 from rasterio.plot import show
 from rasterio.windows import Window
 
 import numpy as np
+from scipy.spatial.distance import cdist
+from tqdm import tqdm
 import json
 import os
 import matplotlib.pyplot as plt
@@ -25,6 +29,38 @@ RGB_path =  os.path.join(NEO_path,'1-21-2022_Ortho_ColorBalance.tif')
 sixbands_path = os.path.join(NEO_path,'1-21-2022_Ortho_6Band.tif')
 
 
+def manual_silhouette_score(data, labels):
+    unique_labels = np.unique(labels)
+    silhouette_values = []
+
+    print("Starting silhouette score calculation...")
+
+    for idx, point in enumerate(tqdm(data, desc="Calculating silhouette scores")):
+        # Current point and cluster
+        cluster = labels[idx]
+        same_cluster = data[labels == cluster]
+        
+        # 1. Calculate mean intra-cluster distance (a_i)
+        a_i = np.mean(cdist([point], same_cluster)[0])
+
+        # 2. Calculate mean nearest-cluster distance (b_i)
+        b_i = np.inf
+        for other_cluster in unique_labels:
+            if other_cluster != cluster:
+                other_cluster_points = data[labels == other_cluster]
+                b_i = min(b_i, np.mean(cdist([point], other_cluster_points)[0]))
+
+        # 3. Compute silhouette coefficient for the point
+        s_i = (b_i - a_i) / max(a_i, b_i)
+        silhouette_values.append(s_i)
+
+        if idx % 100 == 0:
+            print(f"Point {idx}: a_i = {a_i:.4f}, b_i = {b_i:.4f}, s_i = {s_i:.4f}")
+
+    # 4. Average silhouette coefficient
+    return np.mean(silhouette_values)
+
+# Assume `data_2d` is your 2D array of features and `labels` are your cluster labels
 
 
 with rio.open(sixbands_path) as src:
@@ -32,27 +68,31 @@ with rio.open(sixbands_path) as src:
     print(src.meta)
     pixel_size_x = abs(src.transform[0])
     pixel_size_y = abs(src.transform[4])
-    patch_size = 1000 # All in Meters
+    patch_size = 100 # All in Meters
     window = Window(6000,8000,patch_size/pixel_size_x, patch_size/pixel_size_y)
 
     data_arr3D = np.stack([src.read(i,window=window) for i in range(1,5)], axis=-1)
     print('size of bands array', data_arr3D.shape)
 
 """
-Convert each band to 1D array and train a classifier  
-"""
+Convert to 1D array of observations and train a classifier
 
+how do you test for convexness??
+"""
+k=3
 height, width,__ = data_arr3D.shape
 data_arr1D = data_arr3D.reshape(height*width,4)
-print('1D array for each band',data_arr1D.shape)
 
 random_seed=42 # For reproducibility of results
-cl = cluster.KMeans(n_clusters=4, random_state=random_seed)
+cl = cluster.KMeans(n_clusters=k, random_state=random_seed, verbose=1)
 param = cl.fit(data_arr1D)
 
-print(cl.labels_)
 
-img_cl = cl.labels_
+img_cl = param.labels_
+#sh_score=metrics.silhouette_score(data_arr1D, img_cl, metric='euclidean', n_jobs=-1) # doesnt show how many iterations left
+#print(f">> Silhouette Coefficient for k={k}:{sh_score} ")
+sil_score_manual = manual_silhouette_score(data_arr1D, img_cl)
+print(f"Manual Silhouette Score: {sil_score_manual}")
 img_cl = img_cl.reshape(data_arr3D[:,:,0].shape)
 
 
@@ -84,7 +124,7 @@ redb = data_arr3D[:,:,1]
 nirb = data_arr3D[:,:,0]
 
 NDVI = (nirb-redb)/(nirb+redb+1e-10)
-mask = img_cl == 2
+mask = img_cl == 3
 lab1_mask = np.where(mask, img_cl, np.nan)
 
 plt.figure(figsize=(12, 12))
@@ -102,7 +142,7 @@ plt.axis("off")
 
 plt.subplot(2,2,3)
 plt.imshow(RGBim)
-plt.imshow(lab1_mask, cmap='Reds', alpha=0.7)
+plt.imshow(lab1_mask, cmap='Reds', alpha=0.6)
 plt.title("NEO imagery + Label overlay")
 plt.axis("off")
 
