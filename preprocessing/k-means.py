@@ -10,16 +10,17 @@ from sklearn import metrics
 from sklearn.metrics import pairwise_distances
 
 import rasterio as rio
-from rasterio.plot import show
+#from rasterio.plot import show
 from rasterio.windows import Window
 
 import numpy as np
-from scipy.spatial.distance import cdist
-from tqdm import tqdm
 import json
 import os
 import matplotlib.pyplot as plt
 import matplotlib.colors as mc
+
+from metrics import calc_silhouette_score
+
 plt.style.use('seaborn-v0_8-bright')
 plt.rcParams["font.family"] = "serif"
 
@@ -27,41 +28,6 @@ NEO_path = '/mnt/c/Users/Imesh/Desktop/summer_proj/MAPQ3389-EnSTAR'
 
 RGB_path =  os.path.join(NEO_path,'1-21-2022_Ortho_ColorBalance.tif')
 sixbands_path = os.path.join(NEO_path,'1-21-2022_Ortho_6Band.tif')
-
-
-def manual_silhouette_score(data, labels):
-    unique_labels = np.unique(labels)
-    silhouette_values = []
-
-    print("Starting silhouette score calculation...")
-
-    for idx, point in enumerate(tqdm(data, desc="Calculating silhouette scores")):
-        # Current point and cluster
-        cluster = labels[idx]
-        same_cluster = data[labels == cluster]
-        
-        # 1. Calculate mean intra-cluster distance (a_i)
-        a_i = np.mean(cdist([point], same_cluster)[0])
-
-        # 2. Calculate mean nearest-cluster distance (b_i)
-        b_i = np.inf
-        for other_cluster in unique_labels:
-            if other_cluster != cluster:
-                other_cluster_points = data[labels == other_cluster]
-                b_i = min(b_i, np.mean(cdist([point], other_cluster_points)[0]))
-
-        # 3. Compute silhouette coefficient for the point
-        s_i = (b_i - a_i) / max(a_i, b_i)
-        silhouette_values.append(s_i)
-
-        if idx % 100 == 0:
-            print(f"Point {idx}: a_i = {a_i:.4f}, b_i = {b_i:.4f}, s_i = {s_i:.4f}")
-
-    # 4. Average silhouette coefficient
-    return np.mean(silhouette_values)
-
-# Assume `data_2d` is your 2D array of features and `labels` are your cluster labels
-
 
 with rio.open(sixbands_path) as src:
     print('>> Opening all bands file')
@@ -81,17 +47,17 @@ how do you test for convexness??
 """
 k=3
 height, width,__ = data_arr3D.shape
-data_arr1D = data_arr3D.reshape(height*width,4)
+data_arr2D = data_arr3D.reshape(height*width,4)
 
 random_seed=42 # For reproducibility of results
-cl = cluster.KMeans(n_clusters=k, random_state=random_seed, verbose=1)
-param = cl.fit(data_arr1D)
+cl = cluster.KMeans(n_clusters=k, random_state=random_seed, n_jobs=-1, verbose=1)
+param = cl.fit(data_arr2D)
 
 
 img_cl = param.labels_
-#sh_score=metrics.silhouette_score(data_arr1D, img_cl, metric='euclidean', n_jobs=-1) # doesnt show how many iterations left
+#sh_score=metrics.silhouette_score(data_arr2D, img_cl, metric='euclidean', n_jobs=-1) # doesnt show how many iterations left
 #print(f">> Silhouette Coefficient for k={k}:{sh_score} ")
-sil_score_manual = manual_silhouette_score(data_arr1D, img_cl)
+sil_score_manual = calc_silhouette_score(data_arr2D, img_cl, n_jobs=1)
 print(f"Manual Silhouette Score: {sil_score_manual}")
 img_cl = img_cl.reshape(data_arr3D[:,:,0].shape)
 
