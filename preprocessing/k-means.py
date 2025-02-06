@@ -4,13 +4,16 @@ Trying to see if we can pick up darker mangroves seperately.
 
 Inputs are just the NEO data.
 """
-from sklearn.cluster import KMeans
-from sklearn import cluster
-from sklearn import metrics
-from sklearn.metrics import pairwise_distances
+#from sklearn.cluster import KMeans
+#from sklearn import cluster
+#from sklearn import metrics
+
+from fast_pytorch_kmeans import KMeans #https://github.com/DeMoriarty/fast_pytorch_kmeans
+import torch
 
 import rasterio as rio
-#from rasterio.plot import show
+import earthpy as et
+import earthpy.spatial as es
 from rasterio.windows import Window
 
 import numpy as np
@@ -19,7 +22,7 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.colors as mc
 
-from metrics import calc_silhouette_score
+from metrics import GPUSilhouetteScore
 
 plt.style.use('seaborn-v0_8-bright')
 plt.rcParams["font.family"] = "serif"
@@ -34,10 +37,10 @@ with rio.open(sixbands_path) as src:
     print(src.meta)
     pixel_size_x = abs(src.transform[0])
     pixel_size_y = abs(src.transform[4])
-    patch_size = 100 # All in Meters
-    window = Window(6000,8000,patch_size/pixel_size_x, patch_size/pixel_size_y)
+    patch_size = 200 # All in Meters
+    window = Window(1000,8000,patch_size/pixel_size_x, patch_size/pixel_size_y)
 
-    data_arr3D = np.stack([src.read(i,window=window) for i in range(1,5)], axis=-1)
+    data_arr3D = np.stack([src.read(i,window=window).astype(np.float32) for i in range(1,5)], axis=-1)
     print('size of bands array', data_arr3D.shape)
 
 """
@@ -45,22 +48,55 @@ Convert to 1D array of observations and train a classifier
 
 how do you test for convexness??
 """
-k=3
+k=4
+redb = data_arr3D[:,:,0]
+nirb = data_arr3D[:,:,3]
+
+#NDVI = np.where(nirb+redb==0,0,(nirb-redb)/(nirb+redb))
+NDVI = es.normalized_diff(nirb,redb)
+print(f'NDVI range: [{np.min(NDVI)},{np.max(NDVI)}]')
+
+
+print(f"NDVI shape: {NDVI.shape}, data_arr3D shape: {data_arr3D.shape}")
+NDVI = NDVI[:,:,np.newaxis]
+data_arr3D = np.append(data_arr3D,NDVI,axis=2)
 height, width,__ = data_arr3D.shape
-data_arr2D = data_arr3D.reshape(height*width,4)
+data_arr2D = data_arr3D.reshape(height*width,5)
 
 random_seed=42 # For reproducibility of results
-cl = cluster.KMeans(n_clusters=k, random_state=random_seed, n_jobs=-1, verbose=1)
-param = cl.fit(data_arr2D)
+# sklearn
+#cl = cluster.KMeans(n_clusters=k, random_state=random_seed, n_jobs=-1, verbose=1)
+#param = cl.fit(data_arr2D)
 
 
-img_cl = param.labels_
+#img_cl = param.labels_
+
 #sh_score=metrics.silhouette_score(data_arr2D, img_cl, metric='euclidean', n_jobs=-1) # doesnt show how many iterations left
 #print(f">> Silhouette Coefficient for k={k}:{sh_score} ")
-sil_score_manual = calc_silhouette_score(data_arr2D, img_cl, n_jobs=1)
-print(f"Manual Silhouette Score: {sil_score_manual}")
+
+#sil_score_manual = calc_silhouette_score(data_arr2D, img_cl, n_jobs=1)
+#print(f"Manual Silhouette Score: {sil_score_manual}")
+
+#img_cl = img_cl.reshape(data_arr3D[:,:,0].shape)
+
+"""
+torch_kmeans
+"""
+kmeans = KMeans(n_clusters=4, mode='euclidean', init_method="random",verbose=1)
+X = torch.from_numpy(data_arr2D).to(torch.float).to('cuda')
+
+img_cl=kmeans.fit_predict(X)
+sh_gpu = GPUSilhouetteScore()
+gpu_score, individual_scores = sh_gpu.calculate(
+        data=data_arr2D,
+        labels=img_cl,
+        batch_size=512
+)
+
+img_cl = img_cl.cpu().numpy()
 img_cl = img_cl.reshape(data_arr3D[:,:,0].shape)
 
+print(f"Sh score using gpu: {gpu_score}")
 
 """
 Plotting
@@ -85,11 +121,8 @@ with rio.open(RGB_path) as src:
     RGBim = np.stack([src.read(i,window=window) for i in range(1,4)],axis=-1)
 
 
-cmap = mc.LinearSegmentedColormap.from_list("", ["black","red","green","yellow"])
-redb = data_arr3D[:,:,1]
-nirb = data_arr3D[:,:,0]
+cmap = mc.LinearSegmentedColormap.from_list("", ["black","red","green","yellow"])#,"blue","pink","cyan"])
 
-NDVI = (nirb-redb)/(nirb+redb+1e-10)
 mask = img_cl == 3
 lab1_mask = np.where(mask, img_cl, np.nan)
 
