@@ -11,7 +11,11 @@ from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 import torch
 from sklearn import metrics
-    
+import time
+
+from typing import Tuple, Union
+import warnings
+
 def process_point(args):
     point, point_idx, data, labels, unique_labels = args
     cluster = labels[point_idx]
@@ -69,134 +73,124 @@ def cpu_silhouette_score(data, labels, n_jobs=None):
     return np.mean(silhouette_values)
 
 
-import numpy as np
-import torch
-from tqdm import tqdm
+class GPUSilhouetteScore:
+    def __init__(self, device: str = "cuda" if torch.cuda.is_available() else "cpu"):
+        """
+        Initialize the silhouette score calculator.
+        
+        Args:
+            device: The device to perform calculations on ('cuda' or 'cpu')
+        """
+        self.device = device
+        if device == "cpu":
+            warnings.warn("GPU not available, falling back to CPU calculations")
 
-def pairwise_distances_batch(x, y, batch_size=1024):
-    """
-    Compute pairwise distances between two sets of points using double batching
-    
-    This function processes both dimensions in batches to keep memory usage low.
-    For n points, instead of creating an n×n matrix, we create batch_size×batch_size
-    matrices and process them sequentially.
-    """
-    n_samples_x = x.size(0)
-    n_samples_y = y.size(0)
-    distances = torch.zeros(n_samples_x, device=x.device)
-    
-    # Process data in batches for both dimensions
-    for start_x in range(0, n_samples_x, batch_size):
-        end_x = min(start_x + batch_size, n_samples_x)
-        batch_x = x[start_x:end_x]
+    def _pairwise_distances(self, X: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate pairwise distances between two sets of points.
         
-        # Calculate batch norm
-        batch_x_norm = (batch_x**2).sum(1).view(-1, 1)
-        
-        for start_y in range(0, n_samples_y, batch_size):
-            end_y = min(start_y + batch_size, n_samples_y)
-            batch_y = y[start_y:end_y]
+        Args:
+            X: First set of points (n x d tensor) 
+            Y: Second set of points (m x d tensor)
             
-            # Calculate batch distances
-            batch_y_norm = (batch_y**2).sum(1).view(1, -1)
-            batch_dist = batch_x_norm + batch_y_norm - 2 * torch.mm(batch_x, batch_y.t())
-            
-            # Accumulate distances
-            batch_dist = torch.clamp(batch_dist, min=0).sqrt()
-            distances[start_x:end_x] += batch_dist.sum(dim=1)
-            
-            # Clear memory
-            del batch_dist
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-    
-    return distances
+        Returns:
+            Distances matrix (n x m tensor) 
+            Sqrt of l.h.s -> ||x-y||^2 = ||x||^2 + ||y||^2 -2<x,y> (L^2 norm)
+        """
+        X_norm = (X ** 2).sum(1).view(-1, 1)
+        Y_norm = (Y ** 2).sum(1).view(1, -1)
+        distances = X_norm + Y_norm - 2.0 * torch.mm(X, Y.t())
+        return torch.clamp(distances, min=0.0).sqrt()
 
-def gpu_silhouette_score(data, labels, device=None, batch_size=1024):
-    """
-    Calculate silhouette score using GPU acceleration with memory-efficient batching
-    """
-    if device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # Convert to torch tensors
-    if isinstance(data, np.ndarray):
-        data = torch.from_numpy(data).float()
-    if isinstance(labels, np.ndarray):
-        labels = torch.from_numpy(labels)
-    
-    # Move to GPU
-    data = data.to(device)
-    labels = labels.to(device)
-    
-    unique_labels = torch.unique(labels)
-    n_samples = len(data)
-    
-    # Process in batches
-    silhouette_values = torch.zeros(n_samples, device=device)
-    
-    for start in tqdm(range(0, n_samples, batch_size), desc="Calculating silhouette scores"):
-        end = min(start + batch_size, n_samples)
-        batch_data = data[start:end]
-        batch_labels = labels[start:end]
+    def _batch_silhouette(self, 
+                         data: torch.Tensor, 
+                         labels: torch.Tensor, 
+                         batch_size: int = 100) -> torch.Tensor:
+        """
+        Calculate silhouette scores in batches to manage memory.
         
-        # Calculate a_i for points in same cluster
-        for label in unique_labels:
-            mask_same = (labels == label)
-            if mask_same.sum() > 1:  # More than just the point itself
-                same_cluster_points = data[mask_same]
-                batch_distances = pairwise_distances_batch(
-                    batch_data, 
-                    same_cluster_points,
-                    batch_size=batch_size
-                )
+        Args:
+            data: Input data tensor
+            labels: Cluster labels tensor
+            batch_size: Number of points to process at once
+            
+        Returns:
+            Tensor of silhouette scores
+        """
+        n_samples = data.shape[0]
+        silhouette_vals = torch.zeros(n_samples, device=self.device)
+        unique_labels = torch.unique(labels)
+
+        for start_idx in tqdm(range(0, n_samples, batch_size), 
+                            desc="Calculating silhouette scores"):
+            end_idx = min(start_idx + batch_size, n_samples)
+            batch_points = data[start_idx:end_idx]
+            batch_labels = labels[start_idx:end_idx]
+
+            a_i = torch.zeros(batch_points.shape[0], device=self.device)
+            
+            b_i = torch.full((batch_points.shape[0],), float('inf'), device=self.device)
+
+            for label in unique_labels:
+                mask = (labels == label)
+                cluster_points = data[mask]
                 
-                # Update a_i for points in this cluster
-                batch_mask = (batch_labels == label)
-                if batch_mask.any():
-                    silhouette_values[start:end][batch_mask] = batch_distances[batch_mask] / (mask_same.sum() - 1)
+                distances = self._pairwise_distances(batch_points, cluster_points)
+                
+                same_cluster = (batch_labels == label)
+                if same_cluster.any():
+                    a_i[same_cluster] = (distances[same_cluster].sum(1) - 0) / (mask.sum() - 1)
+
+                different_cluster = (batch_labels != label)
+                if different_cluster.any() and mask.any():
+                    mean_dist = distances[different_cluster].mean(1)
+                    b_i[different_cluster] = torch.minimum(b_i[different_cluster], mean_dist)
+
+            # Calculate silhouette score for batch
+            max_val = torch.maximum(a_i, b_i)
+            silhouette_vals[start_idx:end_idx] = (b_i - a_i) / max_val
+
+        return silhouette_vals
+
+    def calculate(self, 
+                 data: Union[np.ndarray, torch.Tensor], 
+                 labels: Union[np.ndarray, torch.Tensor], 
+                 batch_size: int = 100) -> Tuple[float, np.ndarray]:
+        """
+        Calculate silhouette scores for the dataset.
         
-        # Calculate b_i for points in other clusters
-        for label in unique_labels:
-            mask_other = (labels == label)
-            other_cluster_points = data[mask_other]
+        Args:
+            data: Input data (numpy array or torch tensor)
+            labels: Cluster labels (numpy array or torch tensor)
+            batch_size: Batch size for processing
             
-            batch_distances = pairwise_distances_batch(
-                batch_data,
-                other_cluster_points,
-                batch_size=batch_size
-            )
-            
-            # Update b_i for points not in this cluster
-            batch_mask = (batch_labels != label)
-            if batch_mask.any():
-                mean_dist = batch_distances / mask_other.sum()
-                current_b = silhouette_values[start:end]
-                silhouette_values[start:end][batch_mask] = torch.minimum(
-                    current_b[batch_mask],
-                    mean_dist[batch_mask]
-                )
-        
-        # Clear GPU cache
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    
-    # Calculate final silhouette scores
-    valid_mask = silhouette_values != 0
-    if valid_mask.any():
-        silhouette_values[valid_mask] = (silhouette_values[valid_mask] - 1) / torch.maximum(
-            silhouette_values[valid_mask],
-            torch.ones_like(silhouette_values[valid_mask])
-        )
-    
-    return silhouette_values.mean().cpu().item()
+        Returns:
+            Tuple of (mean silhouette score, individual silhouette scores)
+        """
+        # Convert input to torch tensors if needed
+        if isinstance(data, np.ndarray):
+            data = torch.from_numpy(data).float()
+        if isinstance(labels, np.ndarray):
+            labels = torch.from_numpy(labels).long()
+
+        # Move data to appropriate device
+        data = data.to(self.device)
+        labels = labels.to(self.device)
+
+        # Calculate silhouette scores
+        silhouette_vals = self._batch_silhouette(data, labels, batch_size)
+
+        # Convert results back to numpy
+        silhouette_vals_np = silhouette_vals.cpu().numpy()
+        mean_score = float(silhouette_vals.mean().cpu().numpy())
+
+        return mean_score, silhouette_vals_np
 
 def estimate_memory_usage(n_samples, n_features, batch_size):
     """
     Estimate memory usage for the calculation
     """
-    bytes_per_float = 4  # 32-bit float
-    batch_memory = (batch_size * batch_size * bytes_per_float) / (1024**3)  # in GB
+    batch_memory = (batch_size * n_samples * 4)/1024**3    # in GB
     print(f"Estimated memory per batch: {batch_memory:.2f} GB")
     print(f"Total number of batches: {(n_samples // batch_size + 1)**2}")
     return batch_memory
@@ -205,7 +199,7 @@ if __name__ == "__main__":
     """for testing the metrics on random data instead of running the whole k_means.py code....."""
     # Generate sample data
     np.random.seed(42)
-    n_samples = 10000
+    n_samples = 100000
     n_features = 4
     batch_size = 4096
     
@@ -221,7 +215,13 @@ if __name__ == "__main__":
     
     # Calculate score using GPU
     print(">>> Calculating gpu sh score ...")
-    gpu_score = gpu_silhouette_score(data, labels, batch_size=4096)
+    sh_gpu = GPUSilhouetteScore()
+    gpu_score, individual_scores = sh_gpu.calculate(
+            data=data,
+            labels=labels,
+            batch_size=4096
+    )
+    print(f"Score range: [{individual_scores.min():.4f}, {individual_scores.max():.4f}]")
     print(f"Silhouette Score (GPU): {gpu_score:.3f}")
     cpu_score=metrics.silhouette_score(data, labels, metric='euclidean')
     print(f"Silhoutte Score skleanr (CPU):{cpu_score:.3f}")
