@@ -1,4 +1,4 @@
 # Summer project - Mapping Mangroves
 ...
 
-![GUI Screenshot](images/GUI.png) 
+![GUI Screenshot](images/GUI.PNG) 
