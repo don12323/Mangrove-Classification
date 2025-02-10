@@ -11,6 +11,11 @@ from pyproj import Transformer
 from GUI import MangroveClassifierGUI
 
 import matplotlib.pyplot as plt
+"""
+input: GeoJSON file with coordinates in EPSG:4326 (lonlat)
+"""
+
+
 # Paths
 
 NEO_path = '/mnt/c/Users/Imesh/Desktop/summer_proj/MAPQ3389-EnSTAR'
@@ -48,6 +53,7 @@ def get_polygon_window(src, polygon):
         bounds[i+1] = int(row)
     
     print(f"New Bounds:{bounds}")
+    print(polygon)
     width = bounds[0] - bounds[2]
     height = bounds[3] - bounds[1]
     
@@ -57,7 +63,7 @@ def get_polygon_window(src, polygon):
     # Make mask for the polygon region
     shapes = [polygon] # Needs to be in a list for the geometry_mask func in rasterio
     transform = rio.windows.transform(window, src.transform)
-    mask = geometry_mask(shapes, out_shape=(width, height),
+    mask = geometry_mask(shapes, out_shape=(width, height),  #TODO the issue here is we havent converted polygon vertices to the target crs
             transform=transform, invert=False)
     plt.figure(figsize=(10, 10))
     plt.imshow(mask, cmap='gray')
