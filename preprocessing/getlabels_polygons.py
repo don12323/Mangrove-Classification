@@ -3,12 +3,14 @@ import argparse
 import os
 import rasterio as rio
 import geojson
+import geopandas as gpd # Can't open geojson f with gpd-attribute error with fiona
 from rasterio.windows import Window
 from rasterio.features import geometry_mask
 from shapely.geometry import shape, MultiPolygon, Polygon
 import tkinter as tk
 from pyproj import Transformer
 from GUI import MangroveClassifierGUI
+
 
 import matplotlib.pyplot as plt
 """
@@ -32,9 +34,11 @@ def read_geojson(file_path):
         geom = shape(feature['geometry'])
         if isinstance(geom, (Polygon, MultiPolygon)):
             polygons.append(geom)
+            gdf = gpd.GeoDataFrame(geometry=polygons, crs="EPSG:4326")
+            gdf_utm = gdf.to_crs("EPSG:32750")
         else:
             print(f"Skipping non-polygon geomL {geom.type}")
-    return polygons
+    return list(gdf_utm.geometry)
 
 def get_pixel_coords(src, x, y):
     """Convert WGS84 coordinates to pixel coordinates via UTM projection"""
@@ -46,28 +50,30 @@ def get_pixel_coords(src, x, y):
 
 def get_polygon_window(src, polygon):
     bounds = list(polygon.bounds)
-    # Bounds[max_col, min_row, min_col, max_row]
-    for i in range(0, len(bounds), 2):
-        col, row = get_pixel_coords(src, bounds[i], bounds[i+1])
-        bounds[i] = int(col)
-        bounds[i+1] = int(row)
-    
-    print(f"New Bounds:{bounds}")
+    # Convert to pix coord
+    bounds = [(bounds[0], bounds[1]), (bounds[2], bounds[3])] 
+
+    print(f"Bounds in geo coord:{bounds}")
     print(polygon)
-    width = bounds[0] - bounds[2]
-    height = bounds[3] - bounds[1]
-    
+    # Convert bounds to pixels and get window dimensions
+    (col_start, row_start), (col_stop, row_stop) = [src.index(x, y) for x, y in bounds]
+    width, height = col_start - col_stop, row_stop - row_start
+    print(f"Bounds in pix coord:({col_start}, {row_start}) ({col_stop}, {row_stop})")
     if width <= 0 or height <= 0:
         raise ValueError("Invalid winodow dimensions")
-    window = Window(bounds[1],bounds[2], width, height)
+    
+    window = Window(row_start,col_stop, width, height)
     # Make mask for the polygon region
     shapes = [polygon] # Needs to be in a list for the geometry_mask func in rasterio
     transform = rio.windows.transform(window, src.transform)
+    print(f"Window dimensions: {width}x{height}")
+    print(f"Trnasofrm: {transform}")
     mask = geometry_mask(shapes, out_shape=(width, height),  #TODO the issue here is we havent converted polygon vertices to the target crs
-            transform=transform, invert=False)
+            transform=transform, invert=True)
+    print(f"mask min: {np.min(mask)}, mask max: {np.max(mask)}")
     plt.figure(figsize=(10, 10))
     plt.imshow(mask, cmap='gray')
-    
+    plt.show()
     return window, mask
 
 def process_polygons():
@@ -89,7 +95,7 @@ def process_polygons():
                 print(f"\nProcessing polygon {i+1}/{npoly}")
                 window, poly_mask = get_polygon_window(src, polygon)
                 
-        plt.show()
+        #plt.show()
         
     except Exception as e:
         print(f"Error processing polygons: {e}")
