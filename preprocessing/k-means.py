@@ -12,12 +12,10 @@ from fast_pytorch_kmeans import KMeans #https://github.com/DeMoriarty/fast_pytor
 import torch
 
 import rasterio as rio
-import earthpy as et
 import earthpy.spatial as es
 from rasterio.windows import Window
 
 import numpy as np
-import json
 import os
 import matplotlib.pyplot as plt
 import matplotlib.colors as mc
@@ -34,7 +32,9 @@ sixbands_path = os.path.join(NEO_path,'1-21-2022_Ortho_6Band.tif')
 
 with rio.open(sixbands_path) as src:
     print('>> Opening all bands file')
+    print(src.transform)
     print(src.meta)
+    print(src.crs)
     pixel_size_x = abs(src.transform[0])
     pixel_size_y = abs(src.transform[4])
     patch_size = 200 # All in Meters
