@@ -1,4 +1,4 @@
-# Summer project - Mapping Mangroves
+# Mangrove mapping
 ...
 
 ![GUI Screenshot](images/GUI.PNG) 
