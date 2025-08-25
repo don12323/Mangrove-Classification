@@ -1,8 +1,8 @@
 """
-script for testing different metrics for k-means.
+script for testing different metrics for k-means + my attempt at parallelising Sihloutte score >> UPDATE: it works!
 
 1. Sihlouette score: https://www.analyticsvidhya.com/blog/2021/05/k-mean-getting-the-optimal-number-of-clusters/
-2.
+2. 
 
 """
 import numpy as np
