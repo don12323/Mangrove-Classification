@@ -6,18 +6,17 @@ from torch.utils.data import Dataset
 
 import rasterio as rio
 
-def one_hot_enc(mask):
-    classes = np.unique(mask)
+def one_hot_enc(mask, classes):
     encoded_mask = np.zeros((len(classes), mask.shape[1], mask.shape[2]), dtype=mask.dtype)
     
-    for i, cls in enumerate(classes):
-        temp_mask = mask[0]==cls
+    for i in range(len(classes)):
+        temp_mask = mask[0]==i
         encoded_mask[i] = temp_mask.astype(mask.dtype)
     return encoded_mask
 
 class RasterDataset(Dataset):
     def __init__(self, data_dir, training, transform=None):
-        self.root_dir = root_dir
+        self.root_dir = data_dir
         self.image_dir = os.path.join(data_dir, "images") 
         self.mask_dir = os.path.join(data_dir, "labels")
         self.images = [f for f in os.listdir(self.image_dir) if f.endswith(".tif")] 
@@ -26,8 +25,8 @@ class RasterDataset(Dataset):
 
         self.RGBclasses = {
                 'Nodata': [155,155,155],
-                'Water': [41, 169, 226],
-                'Mangrove': [58,221,254]
+                'Water': [58, 221, 254],
+                'Mangrove': [66,242,30]
                 }
         self.classes = ['Nodata', 'Water', 'Mangrove']
 
@@ -44,7 +43,7 @@ class RasterDataset(Dataset):
         with rio.open(mask_path) as src:
             mask = src.read()
         # One hot encoding
-        mask = one_hot_enc(mask)
+        mask = one_hot_enc(mask, self.classes)
         # Transform
 
 
@@ -66,3 +65,4 @@ if __name__ == "__main__":
     arr = np.random.randint(0, 5, size=(1, 512, 512))
     arr = one_hot_enc(arr)
     print(np.unique(arr[2]))
+    print(np.shape(arr))

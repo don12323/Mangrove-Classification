@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as TF
+from torchinfo import summary
 
 class DoubleConv(nn.Module):
     def __init__(self, C_in, C_out, padding):
-        super(DoubleConv, self).__init__()
+        super().__init__()
         self.conv = nn.Sequential(
                 nn.Conv2d(C_in, C_out, 3, 1, padding, bias = False), # Bias = False since we use batchnorm
                 nn.BatchNorm2d(C_out),
@@ -15,11 +16,11 @@ class DoubleConv(nn.Module):
                 )
                                                                 # -important when working with medical imaging or satellite image mosaics, to avoid edge artifacts
     def forward(self,x):
-            return self.conv(x)
+        return self.conv(x)
 
 class UNET(nn.Module):
     def __init__(self, C_in=3, C_out=3, features = [64, 128, 256, 512], padding=0):
-        super(UNET, self).__init__()
+        super().__init__()
         self.ups = nn.ModuleList()
         self.downs = nn.ModuleList()
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
@@ -42,7 +43,8 @@ class UNET(nn.Module):
         self.bottleneck = DoubleConv(features[-1], features[-1]*2, padding)
         # Final conv into segmentation maps
         self.final_conv = nn.Conv2d(features[0], C_out, kernel_size=1)
-
+        # Softmax along features to get probabilities
+        self.softm = nn.Softmax2d()
 
 
     def forward(self, x):
@@ -82,13 +84,16 @@ class UNET(nn.Module):
             concat_skip = torch.cat((skip_connection, x), dim=1) # (N, C, H, W) 
             x = self.ups[i+1](concat_skip) # X = g(f(X) + X)
             print(f"concat + double conv x shape: {tuple(x.shape)}")
-        return self.final_conv(x)
+        x = self.final_conv(x)
+        return self.softm(x)
         
 if __name__ == "__main__":
-    x = torch.rand(3,3,512,512) # torch.rand samples from uniform dist [0,1) torch.randn samples from normal dist N(0,1)
-    PADDING = 1
+    x = torch.rand(3,3,572,572) # torch.rand samples from uniform dist [0,1) torch.randn samples from normal dist N(0,1)
+    PADDING = 0
     model = UNET(C_in = 3, C_out=3, padding = PADDING)
     print(f"input shape: {tuple(x.shape)}")
     pred = model(x)
+
+    summary(model, (3,3,572,572))
     print(f"output shape: {tuple(pred.shape)}")
 
