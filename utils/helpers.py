@@ -9,6 +9,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from preprocessing.dataset import RasterDataset
 
+plt.style.use('seaborn-v0_8-bright')
+plt.rcParams["font.family"] = "serif"
+plt.rcParams["axes.grid"] = False
+
 # Save the model to the target dir
 #def save_model(model: torch.nn.Module, target_dir: str, epoch: int):
 #def plot_curve(results: dict, epochs: int):
@@ -27,22 +31,26 @@ def display(image, mask, rgb_classes, classes, figsize=(15, 5)):
         figsize (tuple): Fig size tuple
     """
     
-
-    image = np.transpose(image, (1, 2, 0))
+    if torch.is_tensor(image):
+        image = image.cpu().numpy()
+    if torch.is_tensor(mask):
+        mask = mask.cpu().numpy()
     
     #Normalize
     # Note: imshow expects [0, 1] floats or [0, 255] uint8
     image = image.astype(np.float32)
     for i in range(len(classes)):
-        image[i] = (image[i] - image[i].min()) / (image[i].max() - image[i].min()) 
+        image[i] = (image[i] - image[i].min()) / (image[i].max() - image[i].min()) #TODO use min max values from whole image not for each patch 
     
+    #print(np.shape(mask))    
+    image = np.transpose(image, (1, 2, 0))
     # Convert one-hot encoded mask to RGB mask
-    mask_rgb = np.zeros((mask.shape[1], mask.shape[2], 3), dtype=np.uint8)
     if mask.shape[0] == len(classes):# One-hot encoded (No need to check if shape == 3 since original mask is shape (1,H,W) anyway
         mask = np.argmax(mask, axis=0) # returns (H, W) find index of max value (1) along channel dim
     
-        
+    #print(np.shape(mask))    
     # Assign rgb values to mask_rgb
+    mask_rgb = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
     for i, name in enumerate(classes):
         color = rgb_classes[name]
         mask_rgb[mask == i] = color
@@ -55,12 +63,12 @@ def display(image, mask, rgb_classes, classes, figsize=(15, 5)):
     
     # Plot original image
     axes[0].imshow(image)
-    axes[0].set_title('Input Image')
+    axes[0].set_title('Image')
     #axes[0].axis('off')
     
     # Plot mask with custom colors
     axes[1].imshow(mask_rgb)
-    axes[1].set_title('Segmentation Mask')
+    axes[1].set_title('Ground truth')
     #axes[1].axis('off')
     
     # Create legend for mask
@@ -69,13 +77,13 @@ def display(image, mask, rgb_classes, classes, figsize=(15, 5)):
                            label=class_name) 
                      for class_name, color in rgb_classes.items()]
     axes[1].legend(handles=legend_elements, loc='upper right', 
-                  bbox_to_anchor=(1, 1), fontsize=8)
+                  bbox_to_anchor=(1, 1), fontsize=9)
     
     # Plot overlay
     axes[2].imshow(image)
     # Create a semi-transparent overlay with custom colors
     axes[2].imshow(mask_rgb, alpha=0.5)
-    axes[2].set_title('Image + Mask Overlay')
+    axes[2].set_title('Image & Mask Overlay')
     #axes[2].axis('off')
     
     plt.tight_layout()
@@ -112,10 +120,46 @@ def plot_dataset_sample(dataset, index=0):
 #    def __init__(self):
 #        super().__init__()
     
+# Function for debugging
+def debug_var(x, name="Variable"):
+    import numpy as np
+    import torch
+
+    print(f"\n Debugging: {name}")
+    print("-" * 40)
+
+    # Type and basic info
+    print(f"Type: {type(x)}")
+
+    # Handle PyTorch tensor
+    if isinstance(x, torch.Tensor):
+        print(f"Shape: {tuple(x.shape)}")
+        print(f"Dtype: {x.dtype}")
+        print(f"Device: {x.device}")
+        print(f"Requires Grad: {x.requires_grad}")
+        print(f"Min: {x.amin(dim=(1,2))}")
+        print(f"Max: {x.amax(dim=(1,2))}")
+        print(f"Mean: {torch.mean(x, dim = (1,2))}")
+        print(f"Std: {torch.std(x, dim = (1,2))}")
+        print(f"Has NaNs: {torch.isnan(x).any().item()}")
+
+    # Handle NumPy array
+    elif isinstance(x, np.ndarray):
+        print(f"Shape: {x.shape}")
+        print(f"Dtype: {x.dtype}")
+        print(f"Min: {np.nanmin(x)}")
+        print(f"Max: {np.nanmax(x)}")
+        print(f"Has NaNs: {np.isnan(x).any()}")
+
+    else:
+        print("⚠️ Unsupported type")
+
+    print("-" * 40)
+
 
 if __name__ == "__main__":
-    root_dir = "/mnt/c/Users/Imesh/Desktop/summer_proj/MAPQ3389-EnSTAR"
-    patches_dir = os.path.join(root_dir, "patches")
+    root_dir = "/mnt/c/Users/Imesh/Desktop/summer_proj/MAPQ3389-EnSTAR/train_val_set"
+    patches_dir = os.path.join(root_dir, "train")
     dataset = RasterDataset(patches_dir, training = None)
 
     num_patches = dataset.__len__()
