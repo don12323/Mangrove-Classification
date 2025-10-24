@@ -35,9 +35,8 @@ dataloaders, dataset_sizes = dataset.create_dataloaders(data_dir = DATA_PATH,
                                                         aug_pipelines = aug_pipelines,
                                                         batch_size = BATCH_SIZE,
                                                         num_workers = NUM_WORKERS,
-                                                        ['train', 'val'],
+                                                        data_partition_list=['train', 'val'],
                                                         )
-
 # Create model
 model = UNET(C_in = 3,
              C_out=3, 

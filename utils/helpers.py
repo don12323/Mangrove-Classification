@@ -4,10 +4,12 @@ Contains various utility functions used for model saving and data visualisation
 import os
 import torch
 import numpy as np
-#import torch.nn.functional as F
-#import torch.nn as nn
+import torch.nn.functional as F
+import torch.nn as nn
 import matplotlib.pyplot as plt
 from preprocessing.dataset import RasterDataset
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.patches import Patch
 
 plt.style.use('seaborn-v0_8-bright')
 plt.rcParams["font.family"] = "serif"
@@ -50,7 +52,7 @@ def display(image, mask, rgb_classes, classes, figsize=(15, 5)):
     
     #print(np.shape(mask))    
     # Assign rgb values to mask_rgb
-    mask_rgb = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+    mask_rgb = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8) # unint8 since we're using rgb values (0 255)
     for i, name in enumerate(classes):
         color = rgb_classes[name]
         mask_rgb[mask == i] = color
@@ -72,7 +74,6 @@ def display(image, mask, rgb_classes, classes, figsize=(15, 5)):
     #axes[1].axis('off')
     
     # Create legend for mask
-    from matplotlib.patches import Patch
     legend_elements = [Patch(facecolor=np.array(color)/255.0, 
                            label=class_name) 
                      for class_name, color in rgb_classes.items()]
@@ -102,29 +103,100 @@ def plot_dataset_sample(dataset, index=0):
     display(image, mask, rgb_classes=dataset.RGBclasses, 
                         classes=dataset.classes)
 
-    
-    
-# Categorical Cross Entropy Loss
-#class CategoricalCrossEntropyLoss(nn.Module):
-#    def __init__(self):
-#        super().__init__()
+def plot_predictions(predictions, rgb_classes, pdf_path="/mnt/c/Users/Imesh/Desktop/summer_proj/code/images/preds.pdf"):
+    """
+    Function for plotting val and test predictions
+    """
+    with PdfPages(pdf_path) as pdf:
+        for batch_idx, (images, true_masks, pred_masks) in enumerate(predictions):
+            for i in range(images.shape[0]):
+                
+                fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+                # Denormalize image to [0,1]
+                img = images[i].permute(1, 2, 0).numpy()
+                img = (img - img.min()) / (img.max() - img.min())
+                
+                # Convert one-hot true mask to class indices
+                true_mask_np = torch.argmax(true_masks[i], dim=0).numpy()  #(C,H,W) -> (H,W)
+                pred_mask_np = pred_masks[i].numpy()  # (H,W)
+                
+                # Convert masks to RGB
+                true_mask_rgb = np.zeros((true_mask_np.shape[0], true_mask_np.shape[1], 3), dtype=np.uint8)
+                pred_mask_rgb = np.zeros((pred_mask_np.shape[0], pred_mask_np.shape[1], 3), dtype=np.uint8)
+                
+                for class_idx, color in enumerate(rgb_classes.values()):
+                    true_mask_rgb[true_mask_np == class_idx] = color
+                    pred_mask_rgb[pred_mask_np == class_idx] = color
+                
+                # Create legend
+                legend_elements = [Patch(facecolor=np.array(color)/255.0, label=class_name)
+                                 for class_name, color in rgb_classes.items()]
+                
+                # Plot
+                axes[0].imshow(img)
+                axes[0].set_title('Image')
+                #axes[0].axis('off')
+                
+                axes[1].imshow(img)
+                axes[1].imshow(true_mask_rgb, alpha=0.8)
+                axes[1].set_title('Ground Truth')
+                #axes[1].axis('off')
+                axes[1].legend(handles=legend_elements, loc='upper right', 
+                              bbox_to_anchor=(1, 1), fontsize=9)
+                
+                axes[2].imshow(img)
+                axes[2].imshow(pred_mask_rgb, alpha=0.8)
+                axes[2].set_title('Prediction')
+                #axes[2].axis('off')
+                axes[2].legend(handles=legend_elements, loc='upper right', 
+                              bbox_to_anchor=(1, 1), fontsize=9)
+                
+                plt.tight_layout()
+                pdf.savefig(fig, bbox_inches='tight')
+                plt.close(fig)
 
-# Multiclass Dice Loss
-#class MultiDiceLoss(nn.Module):
-#    def __init__(self):
-#        super().__init__()
-    
+    print(f"Saved predictions to {pdf_path}")             
 
-# Mean IoU Score
-#class MeanIoU(nn.Module):
-#    def __init__(self):
-#        super().__init__()
+def save_model(model, save_dir, epoch, lr):
+    checkp_name = f"UNet_model_NIR_epoch_{epoch}_lr_{lr}.pth"
+    save_path = os.path.join(save_dir, checkp_name)
+    print("-"*20)
+    print("Saving model as ", checkp_name)
+    print("-"*20)
+    torch.save(model.state_dict(), save_path)
+
+    
+def plot_training_results(epochs,
+                          results,
+                          save_dir="/mnt/c/Users/Imesh/Desktop/summer_proj/code/images",
+                          filename="training_results.png"):
+    
+    # Create epoch list
+    epoch_range = list(range(1, epochs + 1))
+    
+    # Plot everything
+    plt.figure(figsize=(10, 6))
+    plt.plot(epoch_range, results["train_loss"], label="Train Loss", linewidth=1.5)
+    plt.plot(epoch_range, results["val_loss"], label="Validation Loss", linewidth=1.5)
+    plt.plot(epoch_range, results["train_iou"], label="Train IoU", linewidth=1.5)
+    plt.plot(epoch_range, results["val_iou"], label="Validation IoU", linewidth=1.5)
+    
+    plt.xlabel("Epoch")
+    plt.ylabel("Value")
+    plt.title("Training and Validation Metrics")
+    plt.legend()
+    plt.grid(True)
+    
+    # Save the figure
+    save_path = os.path.join(save_dir, filename)
+    plt.savefig(save_path, bbox_inches='tight')
+    plt.close()
+    print(f"Plot saved to {save_path}")
+
     
 # Function for debugging
 def debug_var(x, name="Variable"):
-    import numpy as np
-    import torch
-
+    
     print(f"\n Debugging: {name}")
     print("-" * 40)
 

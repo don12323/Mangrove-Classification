@@ -50,29 +50,29 @@ class UNET(nn.Module):
     def forward(self, x):
         skip_connections = []
         # Encoder
-        print(">> Starting Encoder")
-        print(f"x shape: {tuple(x.shape)}")
+#        print(">> Starting Encoder")
+#        print(f"x shape: {tuple(x.shape)}")
         for down in self.downs:
             x = down(x)
-            print(f"double conv x shape: {tuple(x.shape)}")
+#            print(f"double conv x shape: {tuple(x.shape)}")
             skip_connections.append(x)
             x = self.pool(x)
-            print(f"maxpool x shape: {tuple(x.shape)}")
+#            print(f"maxpool x shape: {tuple(x.shape)}")
 
         # Bottleneck
         x = self.bottleneck(x)
-        print(f"bottleneck x shape: {tuple(x.shape)}")
+#        print(f"bottleneck x shape: {tuple(x.shape)}")
         skip_connections = skip_connections[::-1]
         
         # Decoder
-        print(">> Starting Decoder stage")
-        print(f"x shape: {tuple(x.shape)}")
+#        print(">> Starting Decoder stage")
+#        print(f"x shape: {tuple(x.shape)}")
         for i in range(0, len(self.ups), 2):
             x = self.ups[i](x)  # Up-conv
-            print(f"up-conv x shape: {tuple(x.shape)}")
+#            print(f"up-conv x shape: {tuple(x.shape)}")
             skip_connection = skip_connections[i//2] 
             if x.shape != skip_connection.shape:
-                print(f"x-shape: {tuple(x.shape)} doesn't match skip connection: {tuple(skip_connection.shape)}")
+#                print(f"x-shape: {tuple(x.shape)} doesn't match skip connection: {tuple(skip_connection.shape)}")
                 x_h,_ = x.shape[2:]
                 skip_h,_= skip_connection.shape[2:]
                 if x_h > skip_h:
@@ -83,17 +83,26 @@ class UNET(nn.Module):
             
             concat_skip = torch.cat((skip_connection, x), dim=1) # (N, C, H, W) 
             x = self.ups[i+1](concat_skip) # X = g(f(X) + X)
-            print(f"concat + double conv x shape: {tuple(x.shape)}")
+#            print(f"concat + double conv x shape: {tuple(x.shape)}")
         x = self.final_conv(x)
         return self.softm(x)
         
 if __name__ == "__main__":
-    x = torch.rand(3,3,572,572) # torch.rand samples from uniform dist [0,1) torch.randn samples from normal dist N(0,1)
-    PADDING = 0
-    model = UNET(C_in = 3, C_out=3, padding = PADDING)
+    x = torch.rand(3,3,512,512) # torch.rand samples from uniform dist [0,1) torch.randn samples from normal dist N(0,1)
+                                # TODO 572, 572 outputs 560, 560 with padding =1
+    PADDING = 1 
+    model = UNET(C_in = 3, C_out=2, padding = PADDING)
     print(f"input shape: {tuple(x.shape)}")
-    pred = model(x)
+    model.eval()
+    with torch.no_grad():
+        pred = model(x)
+        import numpy as np
+        pred = torch.argmax(pred, dim=1)
+        #pred = F.one_hot(pred.long(), num_classes=pred.shape[1])
+        
+    #summary(model, (3,3,572,572))
 
-    summary(model, (3,3,572,572))
     print(f"output shape: {tuple(pred.shape)}")
+    
+    print(f"Unique values {np.unique(pred)}")
 
