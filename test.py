@@ -1,8 +1,10 @@
 import os
 import torch
 import numpy as np
-from preprocessing.dataset import RasterDataset, mean_std, get_aug_pipeline
+from preprocessing.dataset import RasterDataset, mean_std, get_aug_pipelines
 from utils.helpers import display, debug_var
+from utils.metrics import MeanIoU, MultiDiceLoss
+from models.UNet import UNET
 import albumentations as A
 
 
@@ -14,28 +16,43 @@ if __name__ == "__main__":
     #means, stds = mean_std(images_dir) #means [417.9286, 405.0440, 415.4319] stds [102.1648,  75.8841,  60.6446]
     means = (417.9286, 405.0440, 415.4319)
     stds = (102.1648,  75.8841,  60.6446)
-    #means = (0, 0, 0)
-    #stds = (1,  1, 1)
-    # augmentation dict
-    aug_pipelines = get_aug_pipelines(means, stds)
-    dataset = RasterDataset(patches_dir, transform = aug_pipelines['train'])
-    dataset2 = RasterDataset(patches_dir, transform = None)
     
-    num_patches = len(dataset) # runs __len()__ method
-    idx = np.random.randint(0,num_patches)
-    print(idx)
-    print(dataset.images[idx])
+    # augmentation dict
+    #aug_pipelines = get_aug_pipelines(means, stds)
+    #dataset = RasterDataset(patches_dir, transform = aug_pipelines['train'])
+    #dataset2 = RasterDataset(patches_dir, transform = None)
+    
+    #num_patches = len(dataset) # runs __len()__ method
+    #idx = np.random.randint(0,num_patches)
+    #print(idx)
+    #print(dataset.images[idx])
 
-    image, mask = dataset[idx]
-    image2, mask2 = dataset2[idx] # runs __getitem__() method
+    #image, mask = dataset[idx]
+    #image2, mask2 = dataset2[idx] # runs __getitem__() method
     #mask = mask.permute(2,0,1)
-    debug_var(image, "image")
-    debug_var(image2, "image2")
-    debug_var(mask, "mask")
-    debug_var(mask2, "mask2")
-    display(image, mask, dataset.RGBclasses, dataset.classes, figsize=(15, 5))
-    display(image2, mask2, dataset.RGBclasses, dataset.classes, figsize=(15, 5))
+    #debug_var(image, "image")
+    #debug_var(image2, "image2")
+    #debug_var(mask, "mask")
+    #debug_var(mask2, "mask2")
+    #display(image, mask, dataset.RGBclasses, dataset.classes, figsize=(15, 5))
+    #display(image2, mask2, dataset.RGBclasses, dataset.classes, figsize=(15, 5))
+    
+    # -------TEST Multidice loss and mean iou for Out channel =2 and =1---------
+    
+    model1 = UNET(C_in = 3, C_out=2, padding = 1)
+    model1.eval()
+    criterion = MultiDiceLoss(numLabels = 2)
+    metric = MeanIoU(numLabels=2)
 
+    image = torch.rand(3,3,512,512)
+    targets = torch.randint(0,2,(3,2,512,512))
+    targets = targets.to(torch.float32)
+    
+    with torch.no_grad():
+        pred = model1(image)
+        loss = criterion(pred, targets)
+        miou = metric(pred, targets)
+        print(f"Mean IoU: {miou}, Multidiceloss: {loss}")
 
 
 
