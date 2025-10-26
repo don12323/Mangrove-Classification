@@ -45,8 +45,8 @@ model = UNET(C_in = 3,
 model = model.to(device)
 
 # Define metrics/loss func and define optimiser
-metric_UNet = metrics.MeanIoU()
-criterion_UNet = metrics.MultiDiceLoss()
+metric_UNet = metrics.MeanIoU(numLabels = 3)
+criterion_UNet = metrics.MultiDiceLoss(numLabels = 3)
 
 optimizer = optim.Adam(model.parameters(), lr = LEARNING_RATE)
 
