@@ -10,18 +10,7 @@ from models.UNet import UNET
 from utils.helpers import display, debug_var, save_model, plot_training_results
 from utils import metrics 
 from preprocessing import dataset
-
-
-DATA_PATH = "/mnt/c/Users/Imesh/Desktop/summer_proj/MAPQ3389-EnSTAR/train_val_set"
-SAVE_PATH = "/mnt/c/Users/Imesh/Desktop/summer_proj/models"
-
-NUM_WORKERS = 6
-NUM_EPOCHS = 30
-BATCH_SIZE = 4
-LEARNING_RATE = 0.001
-
-MEANS = (417.9286, 405.0440, 415.4319)
-STDS = (102.1648,  75.8841,  60.6446)
+import configs.NEOdata as cfgs
 
 
 torch.manual_seed(42)
@@ -30,25 +19,26 @@ torch.cuda.manual_seed(42)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Load dataloaders and data augmentation pipelines
-aug_pipelines = dataset.get_aug_pipelines(means=MEANS, stds=STDS)
-dataloaders, dataset_sizes = dataset.create_dataloaders(data_dir = DATA_PATH,
+aug_pipelines = dataset.get_aug_pipelines(means=cfgs.img_norms['means'], stds=cfgs.img_norms['stds'])
+dataloaders, dataset_sizes = dataset.create_dataloaders(data_dir = cfgs.data_path,
                                                         aug_pipelines = aug_pipelines,
-                                                        batch_size = BATCH_SIZE,
-                                                        num_workers = NUM_WORKERS,
+                                                        batch_size = cfgs.batch_size,
+                                                        num_workers = cfgs.num_workers,
                                                         data_partition_list=['train', 'val'],
+                                                        RGBclasses = cfgs.RGBclasses,
                                                         )
 # Create model
 model = UNET(C_in = 3,
-             C_out=3, 
+             C_out=cfgs.num_classes, 
              padding = 1)
 
 model = model.to(device)
 
 # Define metrics/loss func and define optimiser
-metric_UNet = metrics.MeanIoU(numLabels = 3)
-criterion_UNet = metrics.MultiDiceLoss(numLabels = 3)
+metric_UNet = metrics.MeanIoU(numLabels = cfgs.num_classes)
+criterion_UNet = metrics.MultiDiceLoss(numLabels = cfgs.num_classes)
 
-optimizer = optim.Adam(model.parameters(), lr = LEARNING_RATE)
+optimizer = optim.Adam(model.parameters(), lr = cfgs.optimizer['lr'])
 
 exp_lr_scheduler_UNet = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
@@ -72,7 +62,7 @@ results = {
     "val_iou": []
 }
 
-for epoch in tqdm(range(NUM_EPOCHS), desc="Training Progress"):
+for epoch in tqdm(range(cfgs.epochs), desc="Training Progress"):
     print(f"\nEpoch [{epoch+1}]/{NUM_EPOCHS}\n")
 
     for phase in ['train','val']:
@@ -118,10 +108,10 @@ for epoch in tqdm(range(NUM_EPOCHS), desc="Training Progress"):
 
 
 # TODO save model
-save_model(model, SAVE_PATH, NUM_EPOCHS, LEARNING_RATE)
+save_model(model, cfgs.save_path, cfgs.epochs, cfgs.optimizer['lr'])
 
 # TODO plot training results
-plot_training_results(NUM_EPOCHS, results)
+plot_training_results(cfgs.epochs, results)
 # TODO predict and evaluate
 
 
