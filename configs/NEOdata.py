@@ -2,12 +2,11 @@
 
 data_path = "/mnt/c/Users/Imesh/Desktop/summer_proj/MAPQ3389-EnSTAR/train_val_set"
 save_path = "/mnt/c/Users/Imesh/Desktop/summer_proj/models"
-height = 512
-width = 512
 
 device = 'cuda'
 epochs = 15
 batch_size = 4
+num_workers = 6
 num_classes = 3
 
 optimizer = dict(
@@ -18,8 +17,8 @@ optimizer = dict(
         )
 
 img_norms = dict(
-        means = [],  # red, green, blue, NIR, ....
-        stds = []
+        means = [417.9286, 405.0440, 415.4319],  # red, green, blue, NIR, ....
+        stds = [102.1648,  75.8841,  60.6446]
         )
 
 RGB_classes = dict(
@@ -27,4 +26,8 @@ RGB_classes = dict(
         Water = [58, 221, 254],
         Mangrove = [66,242,30]
         )
+
+#TODO create dict for max and min values of each band 
+
+
 
