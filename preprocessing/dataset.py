@@ -66,20 +66,14 @@ def one_hot_enc(mask, nclasses):
     return encoded_mask
 
 class RasterDataset(Dataset):
-    def __init__(self, data_dir, transform=None):
+    def __init__(self, data_dir, RGBclasses, transform=None):
         self.root_dir = data_dir
         self.image_dir = os.path.join(data_dir, "images") 
         self.mask_dir = os.path.join(data_dir, "labels")
         self.images = [f for f in os.listdir(self.image_dir) if f.endswith(".tif")] 
         self.transform = transform
-
-        self.RGBclasses = {
-                'Nodata': [155,155,155],
-                'Water': [58, 221, 254],
-                'Mangrove': [66,242,30]
-                }
-        self.classes = ['Nodata', 'Water', 'Mangrove']
-        self.nclasses = len(self.classes)
+        self.RGBclasses = RGBclasses
+        self.nclasses = len(self.RGBclasses)
 
     def __len__(self):
         return len(self.images)
@@ -112,8 +106,9 @@ class RasterDataset(Dataset):
         
         return image, mask
 
-def create_dataloaders(data_dir, aug_pipelines, batch_size, num_workers, data_partition_list): # data_dar = path to train val test sets
-    datasets = {x: RasterDataset(data_dir=os.path.join(data_dir, x),      # Create datasets for train, val, test sets  
+def create_dataloaders(data_dir, aug_pipelines, batch_size, num_workers, data_partition_list, RGBclasses): # data_dar = path to train val test sets
+    datasets = {x: RasterDataset(data_dir=os.path.join(data_dir, x),      # Create datasets for train, val, test sets 
+                                 RGBclasses=RGBclasses,
                                  transform=aug_pipelines[x]) for x in data_partition_list}
     dataloaders = {x: DataLoader(datasets[x],                             # Creates iterable for each set 
                                  batch_size = batch_size,
@@ -137,7 +132,7 @@ if __name__ == "__main__":
     
     # One-hot-enc func test
     arr = np.random.randint(0, 5, size=(1, 512, 512))
-    arr = one_hot_enc(arr, dataset.classes)
+    arr = one_hot_enc(arr, len(dataset.RGBclasses))
     print(np.unique(arr[2]))
     print(np.shape(arr))
 
